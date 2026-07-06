@@ -1,0 +1,54 @@
+name: Daily Internship Tracker
+
+on:
+  schedule:
+    # 0 13 * * * UTC = 7:00 AM CST
+    - cron: "0 13 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scrape-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
+      - name: Run tracker
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          DATABASE_PATH: internships.db
+        run: python main.py
+
+      # The SQLite DB is gitignored by default (see .gitignore) so that
+      # local dev runs don't dirty the working tree. In CI, each run
+      # starts from a fresh checkout, so we force-commit the DB back to
+      # the repo after each run to persist dedup state across days.
+      - name: Persist database
+        run: |
+          git config user.name "internship-tracker-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f internships.db
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update internship database [skip ci]"
+            git push
+          else
+            echo "No database changes to commit."
+          fi
