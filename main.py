@@ -68,7 +68,8 @@ def main() -> None:
     )
 
     html = emailer.build_digest_html(new_today, expiring_soon)
-    sent = emailer.send_digest(html)
+    text = emailer.build_digest_text(new_today, expiring_soon)
+    sent = emailer.send_digest(html, text)
     if not sent:
         logger.warning("main: digest email was not sent (see prior errors)")
 

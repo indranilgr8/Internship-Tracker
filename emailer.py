@@ -84,11 +84,41 @@ def build_digest_html(new_listings: list[sqlite3.Row], expiring_listings: list[s
     """
 
 
-def send_digest(html: str, subject: str | None = None) -> bool:
-    """Send the digest HTML over Gmail SMTP (STARTTLS on port 587).
+def _row_to_text(row: sqlite3.Row) -> str:
+    """Render a single listing row as one plain-text line."""
+    company = row["company"] or ""
+    title = row["title"] or ""
+    location = row["location"] or "N/A"
+    url = row["url"] or ""
+    return f"- {company}: {title} ({location}) {url}"
+
+
+def build_digest_text(new_listings: list[sqlite3.Row], expiring_listings: list[sqlite3.Row]) -> str:
+    """Build a plain-text companion to build_digest_html().
+
+    Mail clients that can't render HTML fall back to this, and having a
+    real plain-text alternative (rather than none) also makes the message
+    noticeably less likely to be flagged as spam.
+    """
+    today_str = date.today().strftime("%B %d, %Y")
+    new_lines = "\n".join(_row_to_text(r) for r in new_listings) or "None."
+    expiring_lines = "\n".join(_row_to_text(r) for r in expiring_listings) or "None."
+    return (
+        f"Internship Digest — {today_str}\n\n"
+        f"NEW LISTINGS ({len(new_listings)})\n{new_lines}\n\n"
+        f"EXPIRING SOON ({len(expiring_listings)})\n{expiring_lines}\n\n"
+        "Automated message from the internship tracker."
+    )
+
+
+def send_digest(html: str, text: str | None = None, subject: str | None = None) -> bool:
+    """Send the digest over Gmail SMTP (STARTTLS on port 587).
 
     Args:
         html: full HTML document, e.g. from build_digest_html().
+        text: plain-text alternative, e.g. from build_digest_text(). If
+            omitted, falls back to a minimal placeholder — passing a real
+            plain-text part is strongly recommended for deliverability.
         subject: optional override for the email subject line.
 
     Returns:
@@ -99,11 +129,15 @@ def send_digest(html: str, subject: str | None = None) -> bool:
         return False
 
     subject = subject or f"Internship Digest — {date.today().strftime('%b %d, %Y')}"
+    text = text or "This message requires an HTML-capable email client to view."
 
     message = MIMEMultipart("alternative")
     message["Subject"] = subject
-    message["From"] = config.GMAIL_ADDRESS
+    message["From"] = f"Internship Tracker <{config.GMAIL_ADDRESS}>"
     message["To"] = config.RECIPIENT_EMAIL
+    # RFC 2046: attach parts least-preferred first; clients render the last
+    # alternative they support, so plain text goes before html.
+    message.attach(MIMEText(text, "plain"))
     message.attach(MIMEText(html, "html"))
 
     try:
